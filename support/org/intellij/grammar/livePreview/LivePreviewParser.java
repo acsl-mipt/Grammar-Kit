@@ -53,11 +53,11 @@ public class LivePreviewParser implements PsiParser {
   private final Map<String,String> mySimpleTokens = ContainerUtil.newLinkedHashMap();
   private final Map<String, IElementType> myElementTypes = ContainerUtil.newTroveMap();
 
+  private GenOptions G;
   private BnfRule myGrammarRoot;
   private RuleGraphHelper myGraphHelper;
   private ExpressionHelper myExpressionHelper;
   private MultiMap<BnfRule, BnfRule> myRuleExtendsMap;
-  private boolean generateExtendedPin;
   private String myTokenTypeText;
 
   private final TObjectIntHashMap<BnfRule> myRuleNumbers = new TObjectIntHashMap<BnfRule>();
@@ -105,7 +105,7 @@ public class LivePreviewParser implements PsiParser {
   private void init(PsiBuilder builder) {
     if (myFile == null) return;
     myGrammarRoot = ContainerUtil.getFirstItem(myFile.getRules());
-    generateExtendedPin = getRootAttribute(myFile, KnownAttribute.EXTENDED_PIN);
+    G = new GenOptions(myFile);
     mySimpleTokens.putAll(LivePreviewLexer.collectTokenPattern2Name(myFile, null));
     myGraphHelper = RuleGraphHelper.getCached(myFile);
     myRuleExtendsMap = myGraphHelper.getRuleExtendsMap();
@@ -120,10 +120,10 @@ public class LivePreviewParser implements PsiParser {
       }
     }
     for (BnfRule rule : myFile.getRules()) {
-      String elementType = ParserGeneratorUtil.getElementType(rule);
+      String elementType = ParserGeneratorUtil.getElementType(rule, G.generateElementCase);
       if (StringUtil.isEmpty(elementType)) continue;
       if (myElementTypes.containsKey(elementType)) continue;
-      myElementTypes.put(elementType, new RuleElementType(elementType, rule, myLanguage));
+      myElementTypes.put(elementType, new LivePreviewElementType.RuleType(elementType, rule, myLanguage));
     }
     int count = 0;
     for (BnfRule rule : myFile.getRules()) {
@@ -163,6 +163,7 @@ public class LivePreviewParser implements PsiParser {
     boolean isPrivate = !(isRule || firstNonTrivial) || ParserGeneratorUtil.Rule.isPrivate(rule) || myGrammarRoot == rule;
     boolean isLeft = firstNonTrivial && ParserGeneratorUtil.Rule.isLeft(rule);
     boolean isLeftInner = isLeft && (isPrivate || ParserGeneratorUtil.Rule.isInner(rule));
+    boolean isBranch = !isPrivate && Rule.isUpper(rule);
     String recoverWhile = firstNonTrivial ? getAttribute(rule, KnownAttribute.RECOVER_WHILE) : null;
     boolean canCollapse = !isPrivate && (!isLeft || isLeftInner) && firstNonTrivial && myGraphHelper.canCollapse(rule);
 
@@ -211,6 +212,7 @@ public class LivePreviewParser implements PsiParser {
     else if (isLeft) modifiers |= _LEFT_;
     if (type == BNF_OP_AND) modifiers |= _AND_;
     else if (type == BNF_OP_NOT) modifiers |= _NOT_;
+    if (isBranch) modifiers |= _UPPER_;
 
     PsiBuilder.Marker marker_ = null;
     boolean sectionRequired = !alwaysTrue || !isPrivate || isLeft || recoverWhile != null;
@@ -219,7 +221,7 @@ public class LivePreviewParser implements PsiParser {
       marker_ = enter_section_(builder);
     }
     else if (sectionRequired) {
-      marker_ = enter_section_(builder, level, modifiers, frameName);
+      marker_ = enter_section_(builder, level, modifiers, isPrivate ? null : elementType, frameName);
     }
 
     boolean predicateEncountered = false;
@@ -238,7 +240,7 @@ public class LivePreviewParser implements PsiParser {
             result_ = generateTokenSequenceCall(builder, level, rule, children, funcName, i, pinMatcher, pinApplied, skip, externalArguments);
           }
           else {
-            if (pinApplied && generateExtendedPin && !predicateEncountered) {
+            if (pinApplied && G.generateExtendedPin && !predicateEncountered) {
               if (i == childrenSize - 1) {
                 // do not report error for last child
                 if (i == p + 1) {
@@ -319,7 +321,7 @@ public class LivePreviewParser implements PsiParser {
           }
         };
       }
-      exit_section_(builder, level, marker_, isPrivate ? null : elementType, alwaysTrue || result_, pinned_, recoverPredicate);
+      exit_section_(builder, level, marker_, alwaysTrue || result_, pinned_, recoverPredicate);
     }
 
     return alwaysTrue || result_ || pinned_;
@@ -327,12 +329,13 @@ public class LivePreviewParser implements PsiParser {
 
   private boolean type_extends_(IElementType elementType1, IElementType elementType2) {
     if (elementType1 == elementType2) return true;
-    if (!(elementType1 instanceof RuleElementType)) return false;
-    if (!(elementType2 instanceof RuleElementType)) return false;
+    if (!(elementType1 instanceof LivePreviewElementType.RuleType)) return false;
+    if (!(elementType2 instanceof LivePreviewElementType.RuleType)) return false;
     for (BnfRule baseRule : myRuleExtendsMap.keySet()) {
       Collection<BnfRule> ruleClass = myRuleExtendsMap.get(baseRule);
-      if (ruleClass.contains(((RuleElementType)elementType1).rule) &&
-          ruleClass.contains(((RuleElementType)elementType2).rule)) return true;
+      BnfRule r1 = myFile.getRule(((LivePreviewElementType.RuleType)elementType1).ruleName);
+      BnfRule r2 = myFile.getRule(((LivePreviewElementType.RuleType)elementType2).ruleName);
+      if (ruleClass.contains(r1) && ruleClass.contains(r2)) return true;
     }
     return false;
   }
@@ -546,7 +549,7 @@ public class LivePreviewParser implements PsiParser {
 
   @Nullable
   private IElementType getElementType(BnfRule rule) {
-    String elementType = ParserGeneratorUtil.getElementType(rule);
+    String elementType = ParserGeneratorUtil.getElementType(rule, G.generateElementCase);
     if (StringUtil.isEmpty(elementType)) return null;
     return getElementType(elementType);
   }
@@ -574,16 +577,6 @@ public class LivePreviewParser implements PsiParser {
 
   protected boolean isTokenExpression(BnfExpression node) {
     return node instanceof BnfLiteralExpression || node instanceof BnfReferenceOrToken && myFile.getRule(node.getText()) == null;
-  }
-
-  public static class RuleElementType extends IElementType {
-    public final BnfRule rule;
-
-    RuleElementType(String elementType, BnfRule rule, Language language) {
-      super(elementType, language, false);
-      this.rule = rule;
-    }
-
   }
 
   // Expression Generator Helper part

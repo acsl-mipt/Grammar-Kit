@@ -25,6 +25,7 @@ import com.intellij.openapi.actionSystem.LangDataKeys;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
+import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.progress.Task;
@@ -34,7 +35,6 @@ import com.intellij.openapi.util.ThrowableComputable;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vcs.changes.BackgroundFromStartOption;
-import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VfsUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiDocumentManager;
@@ -141,7 +141,6 @@ public class GenerateAction extends AnAction implements DumbAware {
               "", report, NotificationType.INFORMATION), project);
           }
           VfsUtil.markDirtyAndRefresh(true, true, true, targets.toArray(new VirtualFile[targets.size()]));
-          LocalFileSystem.getInstance().refreshIoFiles(files, true, false, null); // seems unnecessary
         }
       }
 
@@ -180,6 +179,8 @@ public class GenerateAction extends AnAction implements DumbAware {
               BnfConstants.GENERATION_GROUP,
               String.format("%s generated (%s)", file.getName(), StringUtil.formatFileSize(written)),
               "to " + genDir + (duration == null ? "" : " in " + duration), NotificationType.INFORMATION), project);
+          }
+          catch (ProcessCanceledException ignored) {
           }
           catch (Exception ex) {
             Notifications.Bus.notify(new Notification(

@@ -79,6 +79,16 @@ public class ParserGeneratorUtil {
     }
   }
 
+  @NotNull
+  public static <T extends Enum<T>> T enumFromString(@Nullable String value, @NotNull T def) {
+    try {
+      return value == null ? def : Enum.valueOf(def.getDeclaringClass(), Case.UPPER.apply(value).replace('-', '_'));
+    }
+    catch (Exception e) {
+      return def;
+    }
+  }
+
   public static <T> T getGenerateOption(@NotNull PsiElement node, @NotNull KnownAttribute<T> attribute, @Nullable String currentValue) {
     if (attribute.getDefaultValue() instanceof Boolean) {
       if ("yes".equals(currentValue)) return (T)Boolean.TRUE;
@@ -369,7 +379,7 @@ public class ParserGeneratorUtil {
   }
 
   @Nullable
-  public static String getRuleDisplayNameRaw(BnfRule rule, boolean force) {
+  private static String getRuleDisplayNameRaw(BnfRule rule, boolean force) {
     String name = getAttribute(rule, KnownAttribute.NAME);
     BnfRule realRule = rule;
     if (name != null) {
@@ -380,19 +390,14 @@ public class ParserGeneratorUtil {
       return name;
     }
     else {
-      return toDisplayOrConstantName(realRule.getName(), false);
+      return Case.LOWER.apply(StringUtil.join(NameUtil.splitNameIntoWords(realRule.getName()), " "));
     }
   }
 
-  public static String toDisplayOrConstantName(String name, boolean constant) {
-    String[] strings = NameUtil.splitNameIntoWords(name);
-    for (int i = 0; i < strings.length; i++) strings[i] = constant? strings[i].toUpperCase() : strings[i].toLowerCase();
-    return StringUtil.join(strings, constant? "_" : " ");
-  }
-
-  public static String getElementType(BnfRule rule) {
+  public static String getElementType(BnfRule rule, @NotNull Case cas) {
     String elementType = StringUtil.notNullize(getAttribute(rule, KnownAttribute.ELEMENT_TYPE), rule.getName());
-    String displayName = toDisplayOrConstantName(elementType, true);
+    String displayName = cas == Case.AS_IS ? elementType :
+                         cas.apply(StringUtil.join(NameUtil.splitNameIntoWords(elementType), "_"));
     return StringUtil.isEmpty(displayName)? "" : getAttribute(rule, KnownAttribute.ELEMENT_TYPE_PREFIX) + displayName;
   }
 
@@ -538,10 +543,10 @@ public class ParserGeneratorUtil {
     final int[] autoCount = {0};
     final Set<String> origTokenNames = ContainerUtil.newLinkedHashSet(origTokens.values());
 
-    GrammarUtil.visitRecursively(file, true, new BnfVisitor() {
+    BnfVisitor<Void> visitor = new BnfVisitor<Void>() {
 
       @Override
-      public void visitStringLiteralExpression(@NotNull BnfStringLiteralExpression o) {
+      public Void visitStringLiteralExpression(@NotNull BnfStringLiteralExpression o) {
         String text = o.getText();
         String tokenText = StringUtil.stripQuotesAroundValue(text);
         // add auto-XXX token for all unmatched strings to avoid BAD_CHARACTER's
@@ -556,19 +561,24 @@ public class ParserGeneratorUtil {
         else {
           ContainerUtil.addIfNotNull(usedNames, origTokens.get(tokenText));
         }
+        return null;
       }
 
       @Override
-      public void visitReferenceOrToken(@NotNull BnfReferenceOrToken o) {
-        if (GrammarUtil.isExternalReference(o)) return;
+      public Void visitReferenceOrToken(@NotNull BnfReferenceOrToken o) {
+        if (GrammarUtil.isExternalReference(o)) return null;
         BnfRule rule = o.resolveRule();
-        if (rule != null) return;
+        if (rule != null) return null;
         String tokenName = o.getText();
         if (usedNames.add(tokenName) && !origTokenNames.contains(tokenName)) {
           map.put(tokenName, tokenName);
         }
+        return null;
       }
-    });
+    };
+    for (BnfExpression o : GrammarUtil.bnfTraverserNoAttrs(file).filter(BnfExpression.class)) {
+      o.accept(visitor);
+    }
     // fix ordering: origTokens go _after_ to handle keywords correctly
     for (String tokenText : origTokens.keySet()) {
       String tokenName = origTokens.get(tokenText);
@@ -603,6 +613,10 @@ public class ParserGeneratorUtil {
 
     public static boolean isFake(BnfRule node) {
       return hasModifier(node, "fake");
+    }
+
+    public static boolean isUpper(BnfRule node) {
+      return hasModifier(node, "upper");
     }
 
     private static boolean hasModifier(BnfRule node, String s) {

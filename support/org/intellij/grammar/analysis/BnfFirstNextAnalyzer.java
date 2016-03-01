@@ -17,6 +17,7 @@
 package org.intellij.grammar.analysis;
 
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiReference;
@@ -43,7 +44,7 @@ import java.util.*;
 public class BnfFirstNextAnalyzer {
 
   private static final Logger LOG = Logger.getInstance("org.intellij.grammar.analysis.BnfFirstNextAnalyzer");
-  
+
   public static final String MATCHES_EOF = "-eof-";
   public static final String MATCHES_NOTHING = "-never-matches-";
   public static final String MATCHES_ANY = "-any-";
@@ -174,7 +175,7 @@ public class BnfFirstNextAnalyzer {
       if (!result.remove(BNF_MATCHES_EOF)) break;
       matchesEof |= pinApplied;
       BnfExpression e = list.get(i);
-      calcFirstInner(e, result, visited, i < size - 1? list.subList(i + 1, size) : null);
+      calcFirstInner(e, result, visited, i < size - 1 ? Pair.create(pinned.contains(e), list.subList(i + 1, size)) : null);
       pinApplied |= pinned.contains(e);
     }
     // add empty back if was there before
@@ -186,7 +187,7 @@ public class BnfFirstNextAnalyzer {
     return calcFirstInner(expression, result, visited, null);
   }
 
-  public Set<BnfExpression> calcFirstInner(BnfExpression expression, Set<BnfExpression> result, Set<BnfExpression> visited, @Nullable List<BnfExpression> forcedNext) {
+  public Set<BnfExpression> calcFirstInner(BnfExpression expression, Set<BnfExpression> result, Set<BnfExpression> visited, @Nullable Pair<Boolean, List<BnfExpression>> forcedNext) {
     BnfFile file = (BnfFile)expression.getContainingFile();
     if (expression instanceof BnfLiteralExpression) {
       result.add(expression);
@@ -294,7 +295,7 @@ public class BnfFirstNextAnalyzer {
           next = calcNextInner(expression, new THashMap<BnfExpression, BnfExpression>(), visited).keySet();
         }
         else {
-          next = calcSequenceFirstInner(forcedNext, newExprSet(), visited);
+          next = calcSequenceFirstInner(forcedNext.second, newExprSet(), visited);
         }
         visited.remove(predicateExpression);
         if (!skip) {
@@ -302,12 +303,15 @@ public class BnfFirstNextAnalyzer {
         }
       }
       Set<BnfExpression> mixed = newExprSet();
-      if (skip) {
-        mixed.addAll(next);
-        mixed.remove(BNF_MATCHES_EOF);
-      }
-      else if (elementType == BnfTypes.BNF_OP_AND) {
-        if (!conditions.contains(BNF_MATCHES_EOF)) {
+      if (elementType == BnfTypes.BNF_OP_AND) {
+        if (forcedNext != null && forcedNext.first) {
+          mixed.addAll(conditions);
+        }
+        else if (skip) {
+          mixed.addAll(next);
+          mixed.remove(BNF_MATCHES_EOF);
+        }
+        else if (!conditions.contains(BNF_MATCHES_EOF)) {
           if (next.contains(BNF_MATCHES_ANY)) {
             mixed.addAll(conditions);
           }
@@ -324,7 +328,11 @@ public class BnfFirstNextAnalyzer {
         }
       }
       else {
-        if (!conditions.contains(BNF_MATCHES_EOF)) {
+        if (skip) {
+          mixed.addAll(next);
+          mixed.remove(BNF_MATCHES_EOF);
+        }
+        else if (!conditions.contains(BNF_MATCHES_EOF)) {
           mixed.addAll(next);
           mixed.removeAll(conditions);
           if (mixed.isEmpty()) {

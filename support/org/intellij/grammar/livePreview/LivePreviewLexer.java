@@ -16,24 +16,24 @@
 
 package org.intellij.grammar.livePreview;
 
-import com.intellij.lang.Language;
 import com.intellij.lexer.LexerBase;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.psi.TokenType;
 import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.util.CachedValueProvider;
 import com.intellij.psi.util.CachedValuesManager;
-import com.intellij.util.ObjectUtils;
 import com.intellij.util.containers.ContainerUtil;
 import org.intellij.grammar.KnownAttribute;
-import org.intellij.grammar.generator.FakeElementType;
+import org.intellij.grammar.generator.Case;
 import org.intellij.grammar.generator.ParserGeneratorUtil;
 import org.intellij.grammar.psi.BnfFile;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.*;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Map;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -105,7 +105,7 @@ public class LivePreviewLexer extends LexerBase {
         if (findAtOffset(nextOffset)) break;
       }
       myTokenEnd = nextOffset;
-      myTokenType = TokenType.BAD_CHARACTER;
+      myTokenType = com.intellij.psi.TokenType.BAD_CHARACTER;
     }
   }
 
@@ -181,7 +181,7 @@ public class LivePreviewLexer extends LexerBase {
     final IElementType tokenType;
 
     Token(String pattern, String mappedName, boolean usedInGrammar, String constantPrefix, LivePreviewLanguage language) {
-      constantName = constantPrefix + mappedName.toUpperCase(Locale.ENGLISH);
+      constantName = constantPrefix + Case.UPPER.apply(mappedName);
       String tokenName;
       boolean keyword;
       if (ParserGeneratorUtil.isRegexpToken(pattern)) {
@@ -198,13 +198,13 @@ public class LivePreviewLexer extends LexerBase {
 
       IElementType delegate = keyword ? null : guessDelegateType(tokenName, this.pattern, usedInGrammar);
       if (keyword) {
-        tokenType = new KeywordTokenType(tokenName, language);
+        tokenType = new LivePreviewElementType.KeywordType(tokenName, language);
       }
-      else if (delegate == TokenType.WHITE_SPACE || delegate == COMMENT) {
+      else if (delegate == com.intellij.psi.TokenType.WHITE_SPACE || delegate == COMMENT) {
         tokenType = delegate; // PreviewTokenType(tokenName, language, delegate);
       }
       else {
-        tokenType = new PreviewTokenType(tokenName, language, delegate);
+        tokenType = new LivePreviewElementType.TokenType(delegate, tokenName, language);
       }
     }
 
@@ -224,7 +224,7 @@ public class LivePreviewLexer extends LexerBase {
                                                 boolean usedInGrammar) {
     if (pattern != null) {
       if (!usedInGrammar && (pattern.matcher(" ").matches() || pattern.matcher("\n").matches())) {
-        return TokenType.WHITE_SPACE;
+        return com.intellij.psi.TokenType.WHITE_SPACE;
       }
       else if (pattern.matcher("1234").matches()) {
         return NUMBER;
@@ -242,20 +242,5 @@ public class LivePreviewLexer extends LexerBase {
   @NotNull
   public static Map<String, String> collectTokenPattern2Name(@NotNull BnfFile file, @Nullable Set<String> usedInGrammar) {
     return ParserGeneratorUtil.collectTokenPattern2Name(file, true, ContainerUtil.<String, String>newLinkedHashMap(), usedInGrammar);
-  }
-
-  static class PreviewTokenType extends FakeElementType {
-    final IElementType delegate;
-
-    PreviewTokenType(String name, Language language, IElementType delegate) {
-      super(name, language);
-      this.delegate = ObjectUtils.chooseNotNull(delegate, this);
-    }
-  }
-
-  static class KeywordTokenType extends PreviewTokenType {
-    KeywordTokenType(String name, Language language) {
-      super(name, language, KEYWORD);
-    }
   }
 }
