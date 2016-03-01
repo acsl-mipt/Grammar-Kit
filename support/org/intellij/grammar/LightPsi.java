@@ -137,10 +137,14 @@ public class LightPsi {
       if (!matcher.matches()) continue;
       String className = matcher.group(1);
       String path = matcher.group(2);
-      if (!path.startsWith("/Applications")) continue;
+      if (!path.startsWith("/home"/*/Applications"*/)) continue;
 //      if (!path.contains("light-psi-all.jar")) continue;
       addJarEntry(jarFile, className.replace(".", "/") + ".class");
     }
+    addJarEntry(jarFile, "com/intellij/lang/ParserDefinition$SpaceRequirements.class");
+    addJarEntry(jarFile, "com/intellij/lang/LighterLazyParseableNode.class");
+    addJarEntry(jarFile, "com/intellij/openapi/application/ApplicationManager$1.class");
+    addJarEntry(jarFile, "com/intellij/openapi/util/IconLoader.class");
     jarFile.close();
   }
 
